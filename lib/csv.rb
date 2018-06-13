@@ -689,7 +689,10 @@ class CSV
   #
   def self.parse(*args, &block)
     csv = new(*args)
-
+# binding.pry
+# puts "# -------------------------------------------------------------------------"
+# puts csv.encoding.name
+# return LibCsv.parse(args[0], col_sep: ",")
     return csv.each(&block) if block_given?
 
     # slurp contents, if no block is given
@@ -1139,6 +1142,7 @@ class CSV
   # The data source must be open for reading.
   #
   def each
+# binding.pry
     if block_given?
       while row = shift
         yield row
@@ -1181,6 +1185,8 @@ class CSV
     ### checks are faster than numerous (expensive) method calls.         ###
     #########################################################################
 
+# binding.pry
+
     # handle headers not based on document content
     if header_row? and @return_headers and
        [Array, String].include? @use_headers.class
@@ -1203,6 +1209,8 @@ class CSV
       unless parse = @io.gets(@row_sep)
         return nil
       end
+
+# break LibCsv.parse(parse, col_sep: ",").flatten
 
       if in_extended_col
         @line.concat(parse)
@@ -1776,3 +1784,29 @@ end
 require_relative "csv/version"
 require_relative "csv/core_ext/array"
 require_relative "csv/core_ext/string"
+
+# require '../lib/lib_csv.rb/lib_csv'
+# require 'csv/libcsv'
+require 'csv/lib_csv'
+# puts "LibCsv: #{LibCsv.sample}"
+ex = %Q{Ten Thousand,10000, 2710 ,,"10,000","It's ""10 Grand"", baby",10K}
+data = <<~DATA
+      "a","b"
+      "
+      2345
+      ",""
+DATA
+# puts CSV.parse_line(ex)
+# puts CSV.parse("a,b,,d", col_sep: ",")
+# puts "LibCsv: #{LibCsv.parse("a,b,,d", col_sep: ",")}"
+# puts LibCsv.parse("a,b,,d", col_sep: ",").to_s
+# puts CSV.parse("a,b,,d", col_sep: ",").to_s
+puts CSV.parse(data, col_sep: ",").to_s
+# puts LibCsv.parse(data, col_sep: ",").to_s
+# LibCsv: [["a", "b", "", "d"]]
+
+
+# [["a", "b"], ["\n"], ["2345"], [",\"\n"]]
+# [["a", "b"], ["\n2345\n", ""]]
+
+
