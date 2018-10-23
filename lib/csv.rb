@@ -95,6 +95,7 @@ require "date"
 require "stringio"
 require_relative "csv/table"
 require_relative "csv/row"
+require_relative "csv/parser"
 
 # This provides String#match? and Regexp#match? for Ruby 2.3.
 unless String.method_defined?(:match?)
