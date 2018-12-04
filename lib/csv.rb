@@ -93,6 +93,7 @@ require "forwardable"
 require "English"
 require "date"
 require "stringio"
+require "strscan"
 require_relative "csv/table"
 require_relative "csv/row"
 
@@ -1252,8 +1253,8 @@ class CSV
 
       next if @skip_lines and @skip_lines.match parse
 
-      parts =  parse.split(@col_sep_split_separator, -1)
-      if parts.empty?
+      scanner = StringScanner.new(parse)
+      if scanner.eos?
         if in_extended_col
           csv[-1] << @col_sep   # will be replaced with a @row_sep after the parts.each loop
         else
@@ -1263,62 +1264,111 @@ class CSV
 
       # This loop is the hot path of csv parsing. Some things may be non-dry
       # for a reason. Make sure to benchmark when refactoring.
-      parts.each do |part|
+      liberal_parsing_string = ""
+      until scanner.eos?
         if in_extended_col
           # If we are continuing a previous column
-          if part.end_with?(@quote_char) && part.count(@quote_char) % 2 != 0
-            # extended column ends
-            csv.last << part[0..-2]
-            if csv.last.match?(@parsers[:stray_quote])
-              raise MalformedCSVError.new("Missing or stray quote",
-                                          lineno + 1)
-            end
-            csv.last.gsub!(@double_quote_char, @quote_char)
+          if scanner.scan(@parsers[:double_quote])
+            csv.last << @quote_char
+          elsif scanner.scan(@parsers[:quote])
             in_extended_col = false
-          else
-            csv.last << part << @col_sep
-          end
-        elsif part.start_with?(@quote_char)
-          # If we are starting a new quoted column
-          if part.count(@quote_char) % 2 != 0
-            # start an extended column
-            csv << (part[1..-1] << @col_sep)
-            in_extended_col =  true
-          elsif part.end_with?(@quote_char)
-            # regular quoted column
-            csv << part[1..-2]
-            if csv.last.match?(@parsers[:stray_quote])
-              raise MalformedCSVError.new("Missing or stray quote",
-                                          lineno + 1)
+            if scanner.eos?
+              # not to do
+            elsif scanner.scan(/#{Regexp.escape(@col_sep_split_separator)}/)
+              csv << "#{liberal_parsing_string}" if @liberal_parsing
+              if scanner.eos?
+                # e.g. %Q{a,"""\nb\n""",\nc}
+                csv << nil
+              end
+            elsif @liberal_parsing
+              csv << +"#{@quote_char}#{liberal_parsing_string}#{@quote_char}"
+              csv.last << scanner.scan(@parsers[:value])
+            else
+              message = "Do not allow except col_sep_split_separator after quoted fields"
+              raise MalformedCSVError.new(message, lineno + 1)
             end
-            csv.last.gsub!(@double_quote_char, @quote_char)
-          elsif @liberal_parsing
-            csv << part
-          else
-            raise MalformedCSVError.new("Missing or stray quote",
-                                        lineno + 1)
+          elsif scanner.scan(@parsers[:value])
+            csv.last << scanner.matched
+            csv.last << @col_sep if scanner.eos?
           end
-        elsif part.match?(@parsers[:quote_or_nl])
+        elsif scanner.scan(@parsers[:quote])
+          # If we are starting a new quoted column
+          in_extended_col =  true
+          if scanner.eos?
+            csv << @col_sep.dup
+          else
+            if scanner.scan(@parsers[:double_quote])
+              csv << @quote_char.dup
+              csv.last << @col_sep if scanner.eos?
+            elsif scanner.scan(@parsers[:quote])
+              # e.g. '"aaa",""'
+              csv << ""
+              in_extended_col = false
+              unless (scanner.eos? || scanner.scan(/#{Regexp.escape(@col_sep_split_separator)}/))
+                  message = "Do not allow except col_sep_split_separator after quoted fields"
+                raise MalformedCSVError.new(message, lineno + 1)
+              end
+            elsif scanner.scan(@parsers[:value])
+              if @liberal_parsing
+                liberal_parsing_string = scanner.matched
+                liberal_parsing_string << @row_sep if scanner.eos?
+              else
+                csv << scanner.matched
+                csv.last << @col_sep if scanner.eos?
+              end
+            else
+              csv << ""
+            end
+          end
+        elsif scanner.scan(@parsers[:quote_or_nl])
           # Unquoted field with bad characters.
-          if part.match?(@parsers[:nl_or_lf])
+          if scanner.scan(@parsers[:nl_or_lf])
             message = "Unquoted fields do not allow \\r or \\n"
             raise MalformedCSVError.new(message, lineno + 1)
           else
-            if @liberal_parsing
-              csv << part
-            else
+            raise MalformedCSVError.new("Illegal quoting", lineno + 1)
+          end
+        elsif scanner.scan(@parsers[:double_quote])
+        else
+          regexp = if @liberal_parsing
+            @parsers[:unquoted_value_liberal_parsing]
+          else
+            @parsers[:unquoted_value]
+          end
+          if scanner.scan(regexp)
+            csv << scanner.matched
+
+            if scanner.scan(@parsers[:nl_or_lf])
+              message = "Unquoted fields do not allow \\r or \\n"
+              raise MalformedCSVError.new(message, lineno + 1)
+            end
+
+            if scanner.scan(@parsers[:quote])
               raise MalformedCSVError.new("Illegal quoting", lineno + 1)
             end
+
+            unless (scanner.eos? || scanner.scan(/#{Regexp.escape(@col_sep_split_separator)}/))
+              message = "Do not allow except col_sep_split_separator after quoted fields"
+              raise MalformedCSVError.new(message, lineno + 1)
+            end
+            if scanner.matched == @col_sep_split_separator && scanner.eos?
+              csv << nil
+            end
+          elsif scanner.scan(/#{Regexp.escape(@col_sep_split_separator)}/)
+            csv << nil
+            if scanner.eos?
+              # e.g. "a,b,"
+              csv << nil
+            else
+              next
+            end
           end
-        else
-          # Regular ole unquoted field.
-          csv << (part.empty? ? nil : part)
         end
       end
 
       # Replace tacked on @col_sep with @row_sep if we are still in an extended
       # column.
-      csv[-1][-1] = @row_sep if in_extended_col
+      csv[-1][-1] = @row_sep if (in_extended_col && scanner.eos?)
 
       if in_extended_col
         # if we're at eof?(), a quoted field wasn't closed...
@@ -1427,7 +1477,7 @@ class CSV
     # store the selected separators
     @col_sep    = col_sep.to_s.encode(@encoding)
     if @col_sep == " "
-      @col_sep_split_separator = Regexp.new(/#{Regexp.escape(@col_sep)}/)
+      @col_sep_split_separator = "\s"
     else
       @col_sep_split_separator = @col_sep
     end
@@ -1542,8 +1592,14 @@ class CSV
     # prebuild Regexps for faster parsing
     esc_row_sep = escape_re(@row_sep)
     esc_quote   = escape_re(@quote_char)
+    esc_double_quote   = escape_re(@quote_char * 2)
     @parsers = {
       # for detecting parse errors
+      value: encode_re("[", "^", esc_quote, "\\\\", "]", "+"),
+      unquoted_value_liberal_parsing: encode_re("[", "^", "\\\\", @col_sep_split_separator, "\r\n", "]", "+"),
+      unquoted_value: encode_re("[", "^", esc_quote, "\\\\", @col_sep_split_separator, "\r\n", "]", "+"),
+      quote:    encode_re("[", esc_quote, "]"),
+      double_quote: encode_re(esc_double_quote),
       quote_or_nl:    encode_re("[", esc_quote, "\r\n]"),
       nl_or_lf:       encode_re("[\r\n]"),
       stray_quote:    encode_re( "[^", esc_quote, "]", esc_quote,
