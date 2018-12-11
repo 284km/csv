@@ -1274,7 +1274,7 @@ class CSV
             end
             in_extended_col = false
             if scanner.eos?
-              # not to do
+              break
             elsif scanner.scan(@parsers[:col_sep])
               csv << "#{liberal_parsing_string}" if @liberal_parsing
               if scanner.eos?
@@ -1603,8 +1603,6 @@ class CSV
       quote:    encode_re("[", esc_quote, "]"),
       quote_or_nl:    encode_re("[", esc_quote, "\r\n]"),
       nl_or_lf:       encode_re("[\r\n]"),
-      stray_quote:    encode_re( "[^", esc_quote, "]", esc_quote,
-                                 "[^", esc_quote, "]" ),
       # safer than chomp!()
       line_end:       encode_re(esc_row_sep, "\\z"),
       # illegal unquoted characters
