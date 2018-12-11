@@ -1267,10 +1267,11 @@ class CSV
       liberal_parsing_string = ""
       until scanner.eos?
         if in_extended_col
-          # If we are continuing a previous column
-          if scanner.scan(@parsers[:double_quote])
-            csv.last << @quote_char
-          elsif scanner.scan(@parsers[:quote])
+          if scanner.scan(@parsers[:quote])
+            if scanner.scan(@parsers[:quote])
+              csv.last << @quote_char
+              next
+            end
             in_extended_col = false
             if scanner.eos?
               # not to do
@@ -1303,10 +1304,12 @@ class CSV
           if scanner.eos?
             csv << @col_sep.dup
           else
-            if scanner.scan(@parsers[:double_quote])
-              csv << @quote_char.dup
-              csv.last << @col_sep if scanner.eos?
-            elsif scanner.scan(@parsers[:quote])
+            if scanner.scan(@parsers[:quote])
+              if scanner.scan(@parsers[:quote])
+                csv << @quote_char.dup
+                csv.last << @col_sep if scanner.eos?
+                next
+              end
               # e.g. '"aaa",""'
               csv << "" # will be replaced with a @empty_value
               in_extended_col = false
@@ -1326,8 +1329,6 @@ class CSV
               csv << ""
             end
           end
-        elsif scanner.scan(@parsers[:double_quote])
-          # not to do
         else
           regexp = if @liberal_parsing
             @parsers[:unquoted_value_liberal_parsing]
@@ -1592,7 +1593,6 @@ class CSV
     # prebuild Regexps for faster parsing
     esc_row_sep = escape_re(@row_sep)
     esc_quote   = escape_re(@quote_char)
-    esc_double_quote   = escape_re(@quote_char * 2)
     esc_col_sep = escape_re(@col_sep_split_separator)
     @parsers = {
       # for detecting parse errors
@@ -1601,7 +1601,6 @@ class CSV
       unquoted_value_liberal_parsing: encode_re("[", "^", @col_sep_split_separator, "\r\n", "]", "+"),
       unquoted_value: encode_re("[", "^", esc_quote, @col_sep_split_separator, "\r\n", "]", "+"),
       quote:    encode_re("[", esc_quote, "]"),
-      double_quote: encode_re(esc_double_quote),
       quote_or_nl:    encode_re("[", esc_quote, "\r\n]"),
       nl_or_lf:       encode_re("[\r\n]"),
       stray_quote:    encode_re( "[^", esc_quote, "]", esc_quote,
