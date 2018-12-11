@@ -1603,9 +1603,7 @@ class CSV
       quote:    encode_re("[", esc_quote, "]"),
       nl_or_lf:       encode_re("[\r\n]"),
       # safer than chomp!()
-      line_end:       encode_re(esc_row_sep, "\\z"),
-      # illegal unquoted characters
-      return_newline: encode_str("\r\n")
+      line_end:       encode_re(esc_row_sep, "\\z")
     }
   end
 
