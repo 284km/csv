@@ -1601,7 +1601,6 @@ class CSV
       unquoted_value_liberal_parsing: encode_re("[", "^", @col_sep_split_separator, "\r\n", "]", "+"),
       unquoted_value: encode_re("[", "^", esc_quote, @col_sep_split_separator, "\r\n", "]", "+"),
       quote:    encode_re("[", esc_quote, "]"),
-      quote_or_nl:    encode_re("[", esc_quote, "\r\n]"),
       nl_or_lf:       encode_re("[\r\n]"),
       # safer than chomp!()
       line_end:       encode_re(esc_row_sep, "\\z"),
