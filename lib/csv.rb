@@ -1282,8 +1282,14 @@ class CSV
               end
             elsif @liberal_parsing
               csv << +"#{@quote_char}#{liberal_parsing_string}#{@quote_char}"
-              csv.last << scanner.scan(@parsers[:value])
+              # e.g. '1,"\"2\"",3' #=> ["'1", "\"\\\"2\\\"\"", "3'"]
+              csv.last << scanner.scan(@parsers[:unquoted_value_liberal_parsing])
+              unless (scanner.eos? || scanner.scan(/#{Regexp.escape(@col_sep_split_separator)}/))
+                message = "Do not allow except col_sep_split_separator after quoted fields"
+                raise MalformedCSVError.new(message, lineno + 1)
+              end
             else
+              # '"aaa,bbb"ccc'
               message = "Do not allow except col_sep_split_separator after quoted fields"
               raise MalformedCSVError.new(message, lineno + 1)
             end
@@ -1302,10 +1308,10 @@ class CSV
               csv.last << @col_sep if scanner.eos?
             elsif scanner.scan(@parsers[:quote])
               # e.g. '"aaa",""'
-              csv << ""
+              csv << "" # will be replaced with a @empty_value
               in_extended_col = false
               unless (scanner.eos? || scanner.scan(/#{Regexp.escape(@col_sep_split_separator)}/))
-                  message = "Do not allow except col_sep_split_separator after quoted fields"
+                message = "Do not allow except col_sep_split_separator after quoted fields"
                 raise MalformedCSVError.new(message, lineno + 1)
               end
             elsif scanner.scan(@parsers[:value])
@@ -1320,15 +1326,8 @@ class CSV
               csv << ""
             end
           end
-        elsif scanner.scan(@parsers[:quote_or_nl])
-          # Unquoted field with bad characters.
-          if scanner.scan(@parsers[:nl_or_lf])
-            message = "Unquoted fields do not allow \\r or \\n"
-            raise MalformedCSVError.new(message, lineno + 1)
-          else
-            raise MalformedCSVError.new("Illegal quoting", lineno + 1)
-          end
         elsif scanner.scan(@parsers[:double_quote])
+          # not to do
         else
           regexp = if @liberal_parsing
             @parsers[:unquoted_value_liberal_parsing]
@@ -1352,6 +1351,7 @@ class CSV
               raise MalformedCSVError.new(message, lineno + 1)
             end
             if scanner.matched == @col_sep_split_separator && scanner.eos?
+              # "a,b,"
               csv << nil
             end
           elsif scanner.scan(/#{Regexp.escape(@col_sep_split_separator)}/)
@@ -1595,9 +1595,9 @@ class CSV
     esc_double_quote   = escape_re(@quote_char * 2)
     @parsers = {
       # for detecting parse errors
-      value: encode_re("[", "^", esc_quote, "\\\\", "]", "+"),
-      unquoted_value_liberal_parsing: encode_re("[", "^", "\\\\", @col_sep_split_separator, "\r\n", "]", "+"),
-      unquoted_value: encode_re("[", "^", esc_quote, "\\\\", @col_sep_split_separator, "\r\n", "]", "+"),
+      value: encode_re("[", "^", esc_quote, "]", "+"),
+      unquoted_value_liberal_parsing: encode_re("[", "^", @col_sep_split_separator, "\r\n", "]", "+"),
+      unquoted_value: encode_re("[", "^", esc_quote, @col_sep_split_separator, "\r\n", "]", "+"),
       quote:    encode_re("[", esc_quote, "]"),
       double_quote: encode_re(esc_double_quote),
       quote_or_nl:    encode_re("[", esc_quote, "\r\n]"),
