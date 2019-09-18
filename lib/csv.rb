@@ -414,6 +414,7 @@ class CSV
     skip_lines:         nil,
     liberal_parsing:    false,
     quote_empty:        true,
+    use_last_instance:  false,
   }.freeze
 
   #
@@ -565,7 +566,19 @@ class CSV
     elsif field = row.find {|f| f.is_a?(String)}
       str.force_encoding(field.encoding)
     end
-    (new(str, options) << row).string
+    if options[:use_last_instance]
+      csv = last_instance(str, options)
+      line = (csv << row).string.dup
+      csv.rewind
+      csv.truncate(0)
+      line
+    else
+      (new(str, options) << row).string
+    end
+  end
+
+  def self.last_instance(data, **options)
+    (@@instance ||= {})[Thread.current] ||= new(data, options)
   end
 
   #
@@ -936,7 +949,8 @@ class CSV
                  write_converters: nil,
                  write_nil_value: nil,
                  write_empty_value: "",
-                 strip: false)
+                 strip: false,
+                 use_last_instance: false)
     raise ArgumentError.new("Cannot parse nil as CSV") if data.nil?
 
     # create the IO object we will read from
